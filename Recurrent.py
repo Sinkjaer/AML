@@ -151,6 +151,7 @@ from torch.nn.functional import softplus
 # define size variables
 num_features = 28**2
 embedding_dim = 140 # Timesteps T from the article
+num_z = 5
 
 class VariationalAutoencoder(nn.Module):
     def __init__(self, latent_features, num_samples):
@@ -169,16 +170,20 @@ class VariationalAutoencoder(nn.Module):
             nn.Tanh(),
             
             # A Gaussian is fully characterised by its mean and variance
-            nn.Linear(in_features=embedding_dim, out_features=5*2) # <- note the 2*latent_features
+            nn.Linear(in_features=embedding_dim, out_features=num_z*2) # <- note the 2*latent_features
         )
         
         # The latent code must be decoded into the original image
         self.decoder = nn.Sequential(
-            #nn.Linear(in_features=self.latent_features, out_features=128),
+            nn.LSTM(1, embedding_dim,
+                            num_layers=1, bidirectional=True),
+            #nn.Linear(in_features=num_features, out_features=256),
             #nn.ReLU(),
-            #nn.Linear(in_features=128, out_features=256),
-            #nn.ReLU(),
-            nn.Linear(in_features=256, out_features=num_features)
+            #nn.Linear(in_features=256, out_features=128),
+            nn.Tanh(),
+            
+            # A Gaussian is fully characterised by its mean and variance
+            nn.Linear(in_features=embedding_dim, out_features=num_z) # <- note the 2*latent_features
         )
         
 
@@ -186,7 +191,8 @@ class VariationalAutoencoder(nn.Module):
         outputs = {}
         
         # Split encoder outputs into a mean and variance vector
-        mu, log_var = torch.chunk(self.encoder(x), 2, dim=-1)
+        #mu, log_var = torch.chunk(self.encoder(x), 2, dim=-1)
+        mu, sigma_hat = torch.chunk(self.encoder(x), 2, dim=-1)
         
         # :- Reparametrisation trick
         # a sample from N(mu, sigma) is mu + sigma * epsilon
@@ -199,8 +205,8 @@ class VariationalAutoencoder(nn.Module):
             
             if cuda:
                 epsilon = epsilon.cuda()
-        
-        sigma = torch.exp(log_var/2)
+        sigma = nn.functional.softmax(sigma_hat)
+        #sigma = torch.exp(log_var/2)
         
         # We will need to unsqueeze to turn
         # (batch_size, latent_dim) -> (batch_size, 1, latent_dim)
